@@ -1,0 +1,68 @@
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.0
+    env_file:
+      - .env.etcd.example
+    ports:
+      - "2379:2379"
+    networks:
+      - db-network
+
+  spilo1:
+    image: ghcr.io/zalando/spilo-16:3.2-p3
+    hostname: spilo1
+    env_file:
+      - .env.spilo1.example
+    ports:
+      - "5432:5432"
+      - "8008:8008" #patroni API
+
+    depends_on:
+      - etcd
+    networks:
+      - db-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  spilo2:
+    image: ghcr.io/zalando/spilo-16:3.2-p3
+    hostname: spilo2
+    env_file:
+      - .env.spilo2.example
+    ports:
+      - "5433:5432"
+      - "8009:8008"
+    depends_on:
+      - etcd
+    networks:
+      - db-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8008/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  haproxy:
+    image: haproxy:2.8
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "5050:5000" #read-write port
+      - "5001:5001" #read-only port
+      - "7000:7000" #HAProxy stats UI
+    depends_on:
+      spilo1:
+        condition: service_healthy
+      spilo2:
+        condition: service_healthy
+    networks:
+      - db-network
+
+networks:
+  db-network:
+    driver: bridge
